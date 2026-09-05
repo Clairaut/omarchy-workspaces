@@ -6,10 +6,13 @@
   "author": "Omarchy",
   "description": "Workspace number indicators",
   "kinds": [
-    "bar-widget"
+    "bar-widget",
+    "service"
   ],
+  "keepLoaded": true,
   "entryPoints": {
-    "barWidget": "Workspaces.qml"
+    "barWidget": "Workspaces.qml",
+    "service": "Service.qml"
   },
   "barWidget": {
     "displayName": "My Workspaces",

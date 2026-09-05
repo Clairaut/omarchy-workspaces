@@ -1,26 +1,19 @@
 #!/bin/bash
 
-# omarchy-workspaces-switch: picker for named, creatable workspace environments (see hypr/workspaces.lua for the pinning scheme).
-# Usage: omarchy-workspaces-switch [--move]. --move moves the focused window's own monitor into the picked environment (following it) and switches the other monitor(s) to match; with no flag, both monitors just switch.
-# State: ~/.local/state/omarchy/workspaces/environments.json. Requires omarchy-menu-select, omarchy-menu-input, jq.
+# omarchy-workspaces-switch: non-interactive backend for the zone-switcher Panel.qml.
+# Usage: omarchy-workspaces-switch --switch-slot N | --move-slot N
+# State: ~/.local/state/omarchy/workspaces/zones.json (owned by Panel.qml -- this script only reads it).
 
 set -euo pipefail
 
-CAP=10
 STATE_DIR="$HOME/.local/state/omarchy/workspaces"
-STATE_FILE="$STATE_DIR/environments.json"
-CREATE_LABEL="Create environment"
-CREATE_ICON=$'\uf067'   # nf-fa-plus
-EDIT_LABEL="Edit environment"
-EDIT_ICON=$'\uf040'   # nf-fa-pencil
-DELETE_LABEL="Delete environment"
-DELETE_ICON=$'\uf1f8'   # nf-fa-trash
+STATE_FILE="$STATE_DIR/zones.json"
 
 mkdir -p "$STATE_DIR"
-[[ -f "$STATE_FILE" ]] || printf '{"environments":[],"lastWorkspace":{}}' >"$STATE_FILE"
+[[ -f "$STATE_FILE" ]] || printf '{"zones":[],"lastWorkspace":{}}' >"$STATE_FILE"
 
 notify() {
-  notify-send "Workspace environments" "$1"
+  notify-send "Workspace zones" "$1"
 }
 
 sorted_monitor_names() {
@@ -33,57 +26,6 @@ monitor_active_workspace() {
 
 focused_monitor_name() {
   hyprctl monitors -j | jq -r '.[] | select(.focused == true) | .name'
-}
-
-# Prompts for a name and an icon (curated set or a custom glyph); prints "name<TAB>icon", or nothing if cancelled.
-prompt_name_and_icon() {
-  local prompt_label="$1" default_name="${2:-}"
-  local name
-  name=$(omarchy-menu-input "$prompt_label${default_name:+ (blank to keep \"$default_name\")}") || return 0
-  [[ -n $name ]] || name="$default_name"
-  [[ -n $name ]] || return 0
-
-  local icon_options=(
-    $'\uf007\tPerson'
-    $'\uf0b1\tBriefcase'
-    $'\uf015\tHouse'
-    $'\uf11b\tGame controller'
-    $'\uf121\tCode'
-    $'\uf0ac\tGlobe'
-    $'\uf067\tCustom glyph...'
-  )
-  local icon_choice icon
-  icon_choice=$(omarchy-menu-select "Icon for $name" "${icon_options[@]}") || return 0
-
-  case "$icon_choice" in
-    Person) icon=$'\uf007' ;;
-    Briefcase) icon=$'\uf0b1' ;;
-    House) icon=$'\uf015' ;;
-    "Game controller") icon=$'\uf11b' ;;
-    Code) icon=$'\uf121' ;;
-    Globe) icon=$'\uf0ac' ;;
-    "Custom glyph...")
-      icon=$(omarchy-menu-input "Icon glyph") || return 0
-      [[ -n $icon ]] || icon=$'\uf013'   # nf-fa-cog fallback
-      ;;
-    *) return 0 ;;
-  esac
-
-  printf '%s\t%s\n' "$name" "$icon"
-}
-
-# Picker over existing environments; prints the chosen one's slot, or nothing if cancelled or none exist.
-pick_environment() {
-  local prompt_label="$1" envs_json="$2"
-  local envs_options
-  envs_options=$(jq -r '.[] | "\(.icon)\t\(.name)"' <<<"$envs_json")
-  [[ -n $envs_options ]] || { notify "No environments yet"; return 0; }
-
-  local -a options
-  mapfile -t options <<<"$envs_options"
-  local selection
-  selection=$(omarchy-menu-select "$prompt_label" "${options[@]}") || return 0
-  jq -r --arg n "$selection" '.[] | select(.name == $n) | .slot' <<<"$envs_json"
 }
 
 # Records each monitor's current workspace under whichever slot it's actually in right now.
@@ -109,7 +51,7 @@ remember_current_workspaces() {
 
 switch_to_slot() {
   local slot="$1"
-  local env_base=$(( (slot - 1) * 20 ))
+  local zone_base=$(( (slot - 1) * 20 ))
 
   remember_current_workspaces
 
@@ -122,7 +64,7 @@ switch_to_slot() {
     if [[ -n $remembered ]]; then
       target="$remembered"
     else
-      target=$(( env_base + i * 10 + 1 ))
+      target=$(( zone_base + i * 10 + 1 ))
     fi
     local result
     result=$(hyprctl eval "hl.get_monitor(\"$m\"):set_workspace({ workspace = \"$target\" })")
@@ -135,7 +77,7 @@ switch_to_slot() {
 # follows), carrying the window along; other monitors just switch, same as switch_to_slot.
 move_window_to_slot() {
   local slot="$1"
-  local env_base=$(( (slot - 1) * 20 ))
+  local zone_base=$(( (slot - 1) * 20 ))
   local focused
   focused=$(focused_monitor_name)
 
@@ -150,7 +92,7 @@ move_window_to_slot() {
       local local_pos active
       active=$(monitor_active_workspace "$m")
       local_pos=$(( (active - 1) % 10 + 1 ))
-      target=$(( env_base + i * 10 + local_pos ))
+      target=$(( zone_base + i * 10 + local_pos ))
       local result
       result=$(hyprctl eval "hl.dispatch(hl.dsp.window.move({ workspace = \"$target\" }))")
       [[ $result == ok ]] || notify "Failed to move window to workspace $target: $result"
@@ -159,7 +101,7 @@ move_window_to_slot() {
       if [[ -n $remembered ]]; then
         target="$remembered"
       else
-        target=$(( env_base + i * 10 + 1 ))
+        target=$(( zone_base + i * 10 + 1 ))
       fi
       local result
       result=$(hyprctl eval "hl.get_monitor(\"$m\"):set_workspace({ workspace = \"$target\" })")
@@ -169,135 +111,15 @@ move_window_to_slot() {
   done
 }
 
-create_environment() {
-  local mode="$1" envs_json count
-  envs_json=$(jq -c '.environments' "$STATE_FILE")
-  count=$(jq 'length' <<<"$envs_json")
-
-  if (( count >= CAP )); then
-    notify "Max of $CAP environments reached"
+case "${1:-}" in
+  --switch-slot)
+    switch_to_slot "$2"
+    ;;
+  --move-slot)
+    move_window_to_slot "$2"
+    ;;
+  *)
+    echo "Usage: omarchy-workspaces-switch --switch-slot N | --move-slot N" >&2
     exit 1
-  fi
-
-  local name_and_icon name icon
-  name_and_icon=$(prompt_name_and_icon "Environment name")
-  [[ -n $name_and_icon ]] || exit 0
-  IFS=$'\t' read -r name icon <<<"$name_and_icon"
-
-  if jq -e --arg n "$name" 'any(.[]; .name == $n)' <<<"$envs_json" >/dev/null; then
-    notify "\"$name\" already exists"
-    exit 1
-  fi
-
-  # First unused slot in 1..CAP.
-  local used_slots slot
-  used_slots=$(jq -c '[.[].slot]' <<<"$envs_json")
-  slot=$(jq -n --argjson used "$used_slots" --argjson cap "$CAP" \
-    '([range(1; $cap + 1)] - $used) | first')
-
-  jq --arg name "$name" --arg icon "$icon" --argjson slot "$slot" \
-    '.environments += [{slot: $slot, name: $name, icon: $icon}]' \
-    "$STATE_FILE" >"$STATE_FILE.tmp"
-  mv "$STATE_FILE.tmp" "$STATE_FILE"
-
-  if [[ $mode == move ]]; then
-    move_window_to_slot "$slot"
-  else
-    switch_to_slot "$slot"
-  fi
-}
-
-edit_environment() {
-  local envs_json target_slot
-  envs_json=$(jq -c '.environments' "$STATE_FILE")
-  target_slot=$(pick_environment "Edit which environment?" "$envs_json")
-  [[ -n $target_slot ]] || exit 0
-
-  local old_name
-  old_name=$(jq -r --arg slot "$target_slot" '.[] | select(.slot == ($slot|tonumber)) | .name' <<<"$envs_json")
-
-  local name_and_icon name icon
-  name_and_icon=$(prompt_name_and_icon "New name for \"$old_name\"" "$old_name")
-  [[ -n $name_and_icon ]] || exit 0
-  IFS=$'\t' read -r name icon <<<"$name_and_icon"
-
-  if [[ $name != "$old_name" ]] && jq -e --arg n "$name" 'any(.[]; .name == $n)' <<<"$envs_json" >/dev/null; then
-    notify "\"$name\" already exists"
-    exit 1
-  fi
-
-  jq --arg slot "$target_slot" --arg name "$name" --arg icon "$icon" \
-    '.environments |= map(if .slot == ($slot|tonumber) then .name = $name | .icon = $icon else . end)' \
-    "$STATE_FILE" >"$STATE_FILE.tmp"
-  mv "$STATE_FILE.tmp" "$STATE_FILE"
-
-  notify "Updated \"$name\""
-}
-
-delete_environment() {
-  local envs_json target_slot target_name
-  envs_json=$(jq -c '.environments' "$STATE_FILE")
-  target_slot=$(pick_environment "Delete which environment?" "$envs_json")
-  [[ -n $target_slot ]] || exit 0
-
-  target_name=$(jq -r --arg slot "$target_slot" '.[] | select(.slot == ($slot|tonumber)) | .name' <<<"$envs_json")
-
-  jq --arg slot "$target_slot" \
-    '.environments |= map(select(.slot != ($slot|tonumber))) | .lastWorkspace |= del(.[$slot])' \
-    "$STATE_FILE" >"$STATE_FILE.tmp"
-  mv "$STATE_FILE.tmp" "$STATE_FILE"
-
-  notify "Deleted \"$target_name\" (its workspaces stay pinned, just unlisted -- the slot is free for a new environment)"
-}
-
-main() {
-  local mode="switch"
-  [[ "${1:-}" == "--move" ]] && mode="move"
-
-  local envs_json options selection slot
-  envs_json=$(jq -c '.environments' "$STATE_FILE")
-
-  local envs_options
-  envs_options=$(jq -r '.[] | "\(.icon)\t\(.name)"' <<<"$envs_json")
-  if [[ -n $envs_options ]]; then
-    mapfile -t options <<<"$envs_options"
-  else
-    options=()
-  fi
-  options+=("$CREATE_ICON"$'\t'"$CREATE_LABEL")
-  options+=("$EDIT_ICON"$'\t'"$EDIT_LABEL")
-  options+=("$DELETE_ICON"$'\t'"$DELETE_LABEL")
-
-  local prompt_label="Switch environment"
-  [[ $mode == move ]] && prompt_label="Move window to environment"
-  selection=$(omarchy-menu-select "$prompt_label" "${options[@]}") || exit 0
-
-  case "$selection" in
-    "$CREATE_LABEL")
-      create_environment "$mode"
-      return
-      ;;
-    "$EDIT_LABEL")
-      edit_environment
-      return
-      ;;
-    "$DELETE_LABEL")
-      delete_environment
-      return
-      ;;
-  esac
-
-  slot=$(jq -r --arg n "$selection" '.[] | select(.name == $n) | .slot' <<<"$envs_json")
-  if [[ -z $slot ]]; then
-    notify "Unknown environment: $selection"
-    exit 1
-  fi
-
-  if [[ $mode == move ]]; then
-    move_window_to_slot "$slot"
-  else
-    switch_to_slot "$slot"
-  fi
-}
-
-main "$@"
+    ;;
+esac

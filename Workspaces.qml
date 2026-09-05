@@ -5,7 +5,7 @@ import Quickshell.Hyprland
 import qs.Commons
 import qs.Ui
 
-// Environment- and monitor-aware fork of omarchy.workspaces (see workspaces.lua for the pinning scheme).
+// Zone- and monitor-aware fork of omarchy.workspaces (see workspaces.lua for the pinning scheme).
 BarWidget {
   id: root
   moduleName: "omarchy.workspaces"
@@ -35,7 +35,7 @@ BarWidget {
   }
 
   // Derived from this monitor's own active workspace, not the global focus.
-  function environmentBase() {
+  function zoneBase() {
     var screen = root.currentScreen()
     var monitor = screen ? Hyprland.monitorFor(screen) : null
     if (!monitor || !monitor.activeWorkspace) return 0
@@ -43,7 +43,7 @@ BarWidget {
   }
 
   function blockOffset() {
-    return root.environmentBase() + root.monitorIndex() * 10
+    return root.zoneBase() + root.monitorIndex() * 10
   }
 
   function workspaceIds() {
