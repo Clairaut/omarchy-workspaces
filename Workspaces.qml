@@ -5,11 +5,7 @@ import Quickshell.Hyprland
 import qs.Commons
 import qs.Ui
 
-// Monitor-aware fork of omarchy.workspaces: workspaces are pinned in blocks
-// of 10 per monitor (see monitors.lua), ordered left-to-right by physical
-// position, so each bar only shows its own monitor's block -- and only the
-// workspaces in that block that actually have something open on them (plus
-// whichever one is currently focused, so there's always a "you are here").
+// Environment- and monitor-aware fork of omarchy.workspaces (see workspaces.lua for the pinning scheme).
 BarWidget {
   id: root
   moduleName: "omarchy.workspaces"
@@ -23,19 +19,35 @@ BarWidget {
     return null
   }
 
-  function monitorOffset() {
-    var screen = root.QsWindow && root.QsWindow.window ? root.QsWindow.window.screen : null
+  function currentScreen() {
+    return root.QsWindow && root.QsWindow.window ? root.QsWindow.window.screen : null
+  }
+
+  function monitorIndex() {
+    var screen = root.currentScreen()
     if (!screen) return 0
 
     var screens = Quickshell.screens.slice().sort(function(a, b) { return a.x - b.x })
     for (var i = 0; i < screens.length; i++) {
-      if (screens[i].name === screen.name) return i * 10
+      if (screens[i].name === screen.name) return i
     }
     return 0
   }
 
+  // Derived from this monitor's own active workspace, not the global focus.
+  function environmentBase() {
+    var screen = root.currentScreen()
+    var monitor = screen ? Hyprland.monitorFor(screen) : null
+    if (!monitor || !monitor.activeWorkspace) return 0
+    return Math.floor((monitor.activeWorkspace.id - 1) / 20) * 20
+  }
+
+  function blockOffset() {
+    return root.environmentBase() + root.monitorIndex() * 10
+  }
+
   function workspaceIds() {
-    var offset = root.monitorOffset()
+    var offset = root.blockOffset()
     var values = Hyprland.workspaces.values
     var ids = []
 
