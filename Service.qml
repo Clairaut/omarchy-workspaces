@@ -30,6 +30,15 @@ Panel {
   readonly property string stateFile: Quickshell.env("HOME") + "/.local/state/omarchy/workspaces/zones.json"
   readonly property string switchBin: Quickshell.env("HOME") + "/.config/omarchy/plugins/clairaut.workspaces/bin/omarchy-workspaces-switch"
 
+  // nameField/glyphField grab activeFocus on click and never give it back on
+  // their own -- leaving keyCatcher.blocked stuck true (arrow keys dead) on
+  // every later open once either field has ever been focused. Reclaim focus
+  // whenever we land back on a list screen.
+  onScreenStateChanged: {
+    if (root.screenState !== "name" && root.screenState !== "customGlyph")
+      Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+  }
+
   function openFromHotkey(move) {
     root.moveMode = !!move
     root.pendingAction = ""
@@ -38,6 +47,9 @@ Panel {
     root.screenState = "main"
     zoneFile.reload()
     root.controller.show()
+    // Declaring `focus: true` isn't enough once the PanelWindow has already
+    // toggled visible once -- force it explicitly, same as omarchy.menu.
+    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
   function close() { root.controller.hide() }
@@ -59,6 +71,7 @@ Panel {
     id: zoneFile
     path: root.stateFile
     printErrors: false
+    atomicWrites: true
     onLoaded: {
       try {
         root.rawData = JSON.parse(text())
@@ -70,11 +83,17 @@ Panel {
       root.zones = root.rawData.zones
       root.rebuildRows()
     }
+    // First run: no state file yet. Fall back to empty state instead of
+    // leaving currentRows at its initial [] forever (no onLoaded ever fires).
+    onLoadFailed: {
+      root.rawData = { zones: [], lastWorkspace: {} }
+      root.zones = []
+      root.rebuildRows()
+    }
   }
 
   function persist() {
     zoneFile.setText(JSON.stringify(root.rawData, null, 2))
-    zoneFile.writeAdapter()
   }
 
   Process {

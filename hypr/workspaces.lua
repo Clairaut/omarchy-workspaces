@@ -1,6 +1,7 @@
 -- omarchy-workspaces: zone-aware, monitor-pinned workspaces.
 -- Workspace id = (slot-1)*20 + (monitor index, left-to-right, 0-based)*10 + local (1-10).
--- Defines functions only -- call ws.pin_zones({"DP-1","HDMI-A-1"}, 10) from monitors.lua and ws.bind_relative_workspace_keys() from bindings.lua, via dofile(".../workspaces.lua").
+-- Defines functions only. ~/.config/hypr/omarchy-workspaces.lua auto-discovers this file and
+-- wires pin_zones/bind_relative_workspace_keys/bind_relative_tab_keys from monitors.lua and bindings.lua.
 
 local M = {}
 
