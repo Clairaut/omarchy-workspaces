@@ -28,6 +28,23 @@ focused_monitor_name() {
   hyprctl monitors -j | jq -r '.[] | select(.focused == true) | .name'
 }
 
+# A Hyprland config reload (e.g. omarchy-hyprland-monitor-watch recovering from
+# a monitor mode change) re-parses monitors.lua/bindings.lua but can leave the
+# zone workspace_rule pins (from pin_zones) wiped instead of reapplied, which
+# silently breaks set_workspace on any non-focused monitor. Re-pin every time
+# we're about to switch so this is self-healing regardless of reload timing.
+ensure_pinned() {
+  local script_dir workspaces_lua
+  script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+  workspaces_lua="$script_dir/../hypr/workspaces.lua"
+  hyprctl eval "
+    local ws = dofile('$workspaces_lua')
+    local names = {}
+    for _, m in ipairs(ws.sorted_monitors()) do table.insert(names, m.name) end
+    ws.pin_zones(names, 10)
+  " >/dev/null
+}
+
 # Records each monitor's current workspace under whichever slot it's actually in right now.
 remember_current_workspaces() {
   local state
@@ -53,6 +70,7 @@ switch_to_slot() {
   local slot="$1"
   local zone_base=$(( (slot - 1) * 20 ))
 
+  ensure_pinned
   remember_current_workspaces
 
   local -a monitor_names
@@ -81,6 +99,7 @@ move_window_to_slot() {
   local focused
   focused=$(focused_monitor_name)
 
+  ensure_pinned
   remember_current_workspaces
 
   local -a monitor_names
