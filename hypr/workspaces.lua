@@ -18,7 +18,12 @@ end
 function M.focused_monitor_offset()
   local active = hl.get_active_monitor()
   if not active then return 0 end
-  for i, m in ipairs(M.sorted_monitors()) do
+  -- `#` (not ipairs) so a fake/stubbed hl.get_monitors() (e.g. from the
+  -- keybindings-menu's config scan, which isn't real Hyprland) reads as
+  -- length 0 instead of looping forever.
+  local monitors = M.sorted_monitors()
+  for i = 1, #monitors do
+    local m = monitors[i]
     if m.name == active.name then return (i - 1) * 10 end
   end
   return 0
